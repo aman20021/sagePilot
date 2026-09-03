@@ -12,42 +12,104 @@ One Temporal workflow runs per order. Events are delivered as signals; a lightwe
 - **Persistence:** PostgreSQL
 - **LLM:** Google Gemini (function calling), with a deterministic mock-agent fallback when no API key is set
 
-## Setup
+## Run it step by step
 
-Prerequisites: Docker, Python 3.12+, Node 20+.
+Prerequisites: **Docker Desktop** (running), **Python 3.12+**, **Node 20+**.
+You'll need **4 terminals** (or run steps 3–5 in the background).
 
-### 1. Infrastructure (Temporal + Postgres)
+### Step 1 — Start infrastructure (Temporal + Postgres)
 
 ```bash
+cd sagepilot
 docker compose up -d
+docker compose ps          # wait until all 3 containers are Up/healthy
 ```
 
 - Temporal gRPC: `localhost:7233` · Temporal Web UI: http://localhost:8233
-- Postgres: `localhost:5432` (app database `orders`)
+- Postgres: `localhost:5432` (app database `orders`, user/password `temporal`/`temporal`)
 
-### 2. Backend
+### Step 2 — Set up the backend (one-time)
 
 ```bash
 cd backend
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-cp .env.example .env   # add GEMINI_API_KEY to enable the LLM agent
+cp .env.example .env
+```
 
-# terminal 1 — Temporal worker
+Edit `backend/.env` and set your Gemini key (optional — without it a rule-based mock agent is used, everything still works):
+
+```
+GEMINI_API_KEY=your-key-here
+```
+
+### Step 3 — Start the Temporal worker (terminal 1)
+
+```bash
+cd backend
 .venv/bin/python -m app.temporal.worker
+```
 
-# terminal 2 — API
+Expect: `Worker started on task queue order-supervisor`. This process runs the workflow and the AI agent — keep it running.
+
+### Step 4 — Start the API (terminal 2)
+
+```bash
+cd backend
 .venv/bin/uvicorn app.main:app --port 8000
 ```
 
-Without `GEMINI_API_KEY`, the system still works end-to-end using a rule-based mock agent.
+Verify:
 
-### 3. Frontend
+```bash
+curl localhost:8000/api/health        # → {"ok":true}
+curl localhost:8000/api/supervisors   # → seeded default template
+```
+
+### Step 5 — Start the frontend (terminal 3)
 
 ```bash
 cd frontend
 npm install
-npm run dev   # http://localhost:3000
+npm run dev
+```
+
+Open **http://localhost:3000**.
+
+### Step 6 — Try the full lifecycle (terminal 4 or the UI)
+
+In the UI: start a run, then inject events from the run page. Or via curl:
+
+```bash
+# get the seeded supervisor id
+SUP=$(curl -s localhost:8000/api/supervisors | python3 -c "import sys,json;print(json.load(sys.stdin)[0]['id'])")
+
+# start a run (starts one Temporal workflow for the order)
+RUN=$(curl -s -X POST localhost:8000/api/runs -H 'content-type: application/json' \
+  -d "{\"supervisor_id\":\"$SUP\",\"order_id\":\"ORD-1001\",\"order_context\":{\"item\":\"Espresso machine\"}}" \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
+echo "run: http://localhost:3000/runs/$RUN"
+
+# routine event → classifier logs it, agent stays asleep
+curl -X POST localhost:8000/api/runs/$RUN/events -H 'content-type: application/json' -d '{"type":"payment_confirmed"}'
+
+# critical event → agent wakes, messages logistics + customer
+curl -X POST localhost:8000/api/runs/$RUN/events -H 'content-type: application/json' -d '{"type":"shipment_delayed","payload":{"delay_days":3}}'
+
+# add a live instruction → wakes the agent with new context
+curl -X POST localhost:8000/api/runs/$RUN/instructions -H 'content-type: application/json' -d '{"instruction":"Prioritize speed over cost."}'
+
+# terminal event → agent's final review, then workflow completes with a final report
+curl -X POST localhost:8000/api/runs/$RUN/events -H 'content-type: application/json' -d '{"type":"delivered"}'
+```
+
+Watch the timeline update live on the run page, and the workflow itself at http://localhost:8233.
+
+### Stopping everything
+
+```bash
+# Ctrl+C the worker, API, and frontend, then:
+docker compose down        # add -v to also wipe the databases
 ```
 
 ## Using it

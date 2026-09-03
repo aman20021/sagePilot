@@ -17,12 +17,12 @@ def _log(run_id: str, type_: str, payload: dict) -> None:
 
 
 @activity.defn
-async def record_activity(run_id: str, type_: str, payload: dict) -> None:
+def record_activity(run_id: str, type_: str, payload: dict) -> None:
     _log(run_id, type_, payload)
 
 
 @activity.defn
-async def update_run_state(
+def update_run_state(
     run_id: str,
     status: Optional[str] = None,
     memory_summary: Optional[str] = None,
@@ -44,7 +44,7 @@ async def update_run_state(
 
 
 @activity.defn
-async def classify_event_activity(
+def classify_event_activity(
     event_type: str, aggressiveness: str, wake_guidance: str
 ) -> dict:
     return _classify(event_type, aggressiveness, wake_guidance)
@@ -66,7 +66,7 @@ def _fetch_timeline(run_id: str, limit: int = 40) -> list[dict]:
 
 
 @activity.defn
-async def run_agent_activity(ctx: dict[str, Any]) -> dict[str, Any]:
+def run_agent_activity(ctx: dict[str, Any]) -> dict[str, Any]:
     run_id = ctx["run_id"]
     ctx["timeline"] = _fetch_timeline(run_id)
 
@@ -96,7 +96,7 @@ async def run_agent_activity(ctx: dict[str, Any]) -> dict[str, Any]:
 
 
 @activity.defn
-async def generate_final_summary_activity(ctx: dict[str, Any]) -> dict[str, Any]:
+def generate_final_summary_activity(ctx: dict[str, Any]) -> dict[str, Any]:
     run_id = ctx["run_id"]
     ctx["timeline"] = _fetch_timeline(run_id, limit=200)
     output = generate_final_summary_llm(ctx)

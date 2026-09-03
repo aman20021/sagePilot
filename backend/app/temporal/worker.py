@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 from temporalio.client import Client
 from temporalio.worker import Worker
@@ -25,6 +26,9 @@ async def main() -> None:
         client,
         task_queue=settings.temporal_task_queue,
         workflows=[OrderSupervisorWorkflow],
+        # Activities are synchronous (blocking LLM/DB calls) and run in this
+        # thread pool so they never block the worker's asyncio event loop.
+        activity_executor=ThreadPoolExecutor(max_workers=20),
         activities=[
             record_activity,
             update_run_state,
